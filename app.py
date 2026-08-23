@@ -33,7 +33,7 @@ st.markdown("""
         margin-bottom: 20px;
     }
     </style>
-""", unsafe_allow_index=True)
+""", unsafe_allow_html=True)
 
 # --- U.S. TREASURY API FETCH LOGIC ---
 @st.cache_data(ttl=60)  # Caches the data for 60 seconds to avoid spamming the endpoint
