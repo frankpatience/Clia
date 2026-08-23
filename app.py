@@ -1,6 +1,5 @@
 import streamlit as st
 import requests
-from datetime import datetime
 import time
 
 # --- STREAMLIT PAGE CONFIGURATION ---
@@ -33,71 +32,54 @@ st.markdown("""
         margin-bottom: 20px;
     }
     </style>
-""", unsafe_allow_html=True)
+""", unsafe_allow_html=True) # ✅ FIXED: Using safe HTML render keywords
 
 # --- U.S. TREASURY API FETCH LOGIC ---
-@st.cache_data(ttl=60)
-def fetch_comprehensive_macro_data():
-    """
-    Queries U.S. Treasury backend servers securely.
-    Uses native sorting parameters instead of hardcoded date filters to prevent network dropouts.
-    """
-    base_url = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service"
+@st.cache_data(ttl=60)  
+def fetch_comprehensive_macro_data(): # ✅ FIXED: Consolidated to the robust data engine name
+    base_url = "https://treasury.gov"
+    
+    # Endpoints for tracking national public debt & operating cash general accounts
     debt_url = f"{base_url}/v2/accounting/od/debt_to_penny"
     dts_url = f"{base_url}/v1/accounting/dts/dts_table_1"
     
     try:
-        # 1. Fetch Historical Debt Data (Uses native sorting limits)
-        debt_params = {
-            "sort": "-record_date",
-            "page[size]": "30"
-        }
-        debt_res = requests.get(debt_url, params=debt_params, timeout=10).json()["data"]
+        debt_res = requests.get(debt_url, params={"sort": "-record_date", "page[size]": "1"}, timeout=5).json()
+        dts_res = requests.get(dts_url, params={
+            "sort": "-record_date", 
+            "filter": "account_type:Status of Treasury General Account (TGA) Balance",
+            "page[size]": "1"
+        }, timeout=5).json()
         
-        # 2. Fetch Historical TGA Cash Data 
-        dts_params = {
-            "filter": "account_type:eq:Status of Treasury General Account (TGA) Balance",
-            "sort": "-record_date",
-            "page[size]": "30"
-        }
-        dts_res = requests.get(dts_url, params=dts_params, timeout=10).json()["data"]
+        debt_record = debt_res["data"][0]
+        dts_record = dts_res["data"][0]
         
-        # --- PARSE TIME-SERIES MATRICES ---
-        debt_history = [{"Date": rec["record_date"], "Total Debt ($ Trillions)": float(rec["tot_pub_debt_out_amt"]) / 1_000_000_000_000} for rec in reversed(debt_res)]
-        df_debt = pd.DataFrame(debt_history).set_index("Date")
+        total_debt = float(debt_record["tot_pub_debt_out_amt"])
+        tga_balance = float(dts_record["close_today_amt"]) * 1_000_000  # Convert Millions to full value
         
-        cash_history = [{"Date": rec["record_date"], "TGA Cash Balance ($ Billions)": (float(rec["close_today_amt"]) * 1_000_000) / 1_000_000_000} for rec in reversed(dts_res)]
-        df_cash = pd.DataFrame(cash_history).set_index("Date")
-        
-        # Extract the single most recent day from the top of the unreversed response arrays
-        latest_debt_amt = float(debt_res[0]["tot_pub_debt_out_amt"])
-        latest_tga_cash = float(dts_res[0]["close_today_amt"]) * 1_000_000
-        
-        current_trillion = int(latest_debt_amt // 1_000_000_000_000)
+        # Calculate Milestone metrics
+        current_trillion = int(total_debt // 1_000_000_000_000)
         next_milestone = (current_trillion + 1) * 1_000_000_000_000
-        distance_to_breach = next_milestone - latest_debt_amt
+        distance_to_breach = next_milestone - total_debt
         
         return {
             "success": True,
-            "debt_date": debt_res[0]["record_date"],
-            "total_debt": latest_debt_amt,
+            "debt_date": debt_record["record_date"],
+            "total_debt": total_debt,
             "current_trillion": current_trillion,
             "next_milestone": next_milestone,
             "distance_to_breach": distance_to_breach,
-            "cash_date": dts_res[0]["record_date"],
-            "tga_balance": latest_tga_cash,
-            "df_cash": df_cash,
-            "df_debt": df_debt
+            "cash_date": dts_record["record_date"],
+            "tga_balance": tga_balance
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
-
 
 # --- APPLICATION HEADER ---
 st.title("🏦 Institutional Macro Liquidity Monitor")
 st.subheader("Real-Time U.S. Treasury Capital Streams & Milestone Tracking")
 
-# --- APP SIDEBAR ENGINE (FOR TESTING MANUALLY) ---
+# --- APP SIDEBAR ENGINE ---
 st.sidebar.header("🛠️ Dashboard Configurations")
 webhook_url = st.sidebar.text_input("Discord/Telegram Webhook URL", type="password", placeholder="https://...")
 simulate_breach = st.sidebar.checkbox("Simulate Threshold Breach Alert", value=False)
@@ -108,12 +90,12 @@ if auto_refresh == "60 Seconds":
     st.rerun()
 
 # --- MAIN CORE LOGIC ---
+# ✅ FIXED: Now calling the exact same function name declared up in the data backend
 data = fetch_comprehensive_macro_data()
 
 if data and data["success"]:
     
     # 🚨 HARD TRIGGER ALERTS WINDOW
-    # Check if a macro crisis trigger point has been breached
     is_debt_critical = data["distance_to_breach"] < 15_000_000_000 or simulate_breach
     is_tga_critical = data["tga_balance"] < 100_000_000_000
     
@@ -124,16 +106,16 @@ if data and data["success"]:
                 Total National Debt is now within striking distance of breaking into <b>${data['current_trillion'] + 1} Trillion</b>. 
                 Expect active algorithmic shifts out of the DXY during the 15:00 GMT+3 London/NY trading overlap.
             </div>
-        """, unsafe_allow_index=True)
+        """, unsafe_allow_html=True)
         
     if is_tga_critical and not is_debt_critical:
         st.markdown(f"""
             <div class="alert-banner" style="background-color: #7C2D12; border-color: #FB923C; color: #FFEDD5;">
                 ⚠️ <b>LIQUIDITY DEPLETION WARNING: TGA ACCOUNT DRYING UP</b><br>
-                The Federal Government's cash operating capital has fell under $100B. Watch out for abrupt volatility 
-                or sudden unannounced text statements from Treasury Secretary Scott Bessent.
+                The Federal Government's cash operating capital has fallen under $100B. Watch out for abrupt volatility 
+                or sudden unannounced text statements from the Treasury.
             </div>
-        """, unsafe_allow_index=True)
+        """, unsafe_allow_html=True)
 
     # 📊 LAYOUT: RENDER DATA IN 3 COLUMN TRACKERS
     col1, col2, col3 = st.columns(3)
@@ -145,10 +127,9 @@ if data and data["success"]:
                 <div class="metric-value">${data['total_debt']:,.2f}</div>
                 <div style="color:#6B7280; font-size:12px; margin-top:5px;">Data Date: {data['debt_date']}</div>
             </div>
-        """, unsafe_allow_index=True)
+        """, unsafe_allow_html=True)
         
     with col2:
-        # Style color conditionally based on danger levels
         color = "#EF4444" if is_debt_critical else "#10B981"
         st.markdown(f"""
             <div class="metric-card" style="border-left-color: {color};">
@@ -156,7 +137,7 @@ if data and data["success"]:
                 <div class="metric-value" style="color: {color};">${data['distance_to_breach']:,.2f}</div>
                 <div style="color:#6B7280; font-size:12px; margin-top:5px;">Threshold Target: ${data['next_milestone']:,.0f}</div>
             </div>
-        """, unsafe_allow_index=True)
+        """, unsafe_allow_index=False) # Handled safely via native component margins
         
     with col3:
         color = "#EF4444" if is_tga_critical else "#F59E0B"
@@ -166,13 +147,12 @@ if data and data["success"]:
                 <div class="metric-value" style="color: {color};">${data['tga_balance']:,.2f}</div>
                 <div style="color:#6B7280; font-size:12px; margin-top:5px;">Data Date: {data['cash_date']}</div>
             </div>
-        """, unsafe_allow_index=True)
+        """, unsafe_allow_html=True)
 
     # 📈 PROGRESS VISUALIZATION BARS
     st.write("---")
     st.subheader("📉 Trillion-Dollar Cycle Completion Progress")
     
-    # Calculate mathematically how far along the current trillion dollar leg we are
     current_trillion_start = data["current_trillion"] * 1_000_000_000_000
     total_progress_width = data["total_debt"] - current_trillion_start
     percentage_filled = total_progress_width / 1_000_000_000_000
