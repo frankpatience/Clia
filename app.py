@@ -32,14 +32,12 @@ st.markdown("""
         margin-bottom: 20px;
     }
     </style>
-""", unsafe_allow_html=True) # ✅ FIXED: Using safe HTML render keywords
+""", unsafe_allow_html=True)
 
 # --- U.S. TREASURY API FETCH LOGIC ---
 @st.cache_data(ttl=60)  
-def fetch_comprehensive_macro_data(): # ✅ FIXED: Consolidated to the robust data engine name
+def fetch_comprehensive_macro_data():
     base_url = "https://treasury.gov"
-    
-    # Endpoints for tracking national public debt & operating cash general accounts
     debt_url = f"{base_url}/v2/accounting/od/debt_to_penny"
     dts_url = f"{base_url}/v1/accounting/dts/dts_table_1"
     
@@ -55,9 +53,8 @@ def fetch_comprehensive_macro_data(): # ✅ FIXED: Consolidated to the robust da
         dts_record = dts_res["data"][0]
         
         total_debt = float(debt_record["tot_pub_debt_out_amt"])
-        tga_balance = float(dts_record["close_today_amt"]) * 1_000_000  # Convert Millions to full value
+        tga_balance = float(dts_record["close_today_amt"]) * 1_000_000
         
-        # Calculate Milestone metrics
         current_trillion = int(total_debt // 1_000_000_000_000)
         next_milestone = (current_trillion + 1) * 1_000_000_000_000
         distance_to_breach = next_milestone - total_debt
@@ -90,7 +87,7 @@ if auto_refresh == "60 Seconds":
     st.rerun()
 
 # --- MAIN CORE LOGIC ---
-# ✅ FIXED: Now calling the exact same function name declared up in the data backend
+# Using the single consolidated layout function name
 data = fetch_comprehensive_macro_data()
 
 if data and data["success"]:
@@ -137,7 +134,7 @@ if data and data["success"]:
                 <div class="metric-value" style="color: {color};">${data['distance_to_breach']:,.2f}</div>
                 <div style="color:#6B7280; font-size:12px; margin-top:5px;">Threshold Target: ${data['next_milestone']:,.0f}</div>
             </div>
-        """, unsafe_allow_index=False) # Handled safely via native component margins
+        """, unsafe_allow_html=True)
         
     with col3:
         color = "#EF4444" if is_tga_critical else "#F59E0B"
