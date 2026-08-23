@@ -108,7 +108,7 @@ if auto_refresh == "60 Seconds":
     st.rerun()
 
 # --- MAIN CORE LOGIC ---
-data = fetch_treasury_data()
+data = fetch_comprehensive_macro_data()
 
 if data and data["success"]:
     
