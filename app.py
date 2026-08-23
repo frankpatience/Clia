@@ -36,46 +36,62 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- U.S. TREASURY API FETCH LOGIC ---
-@st.cache_data(ttl=60)  # Caches the data for 60 seconds to avoid spamming the endpoint
-def fetch_treasury_data():
-    base_url = "https://treasury.gov"
-    
-    # 1. Debt to the Penny Endpoints
+@st.cache_data(ttl=60)
+def fetch_comprehensive_macro_data():
+    """
+    Queries U.S. Treasury backend servers securely.
+    Uses native sorting parameters instead of hardcoded date filters to prevent network dropouts.
+    """
+    base_url = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service"
     debt_url = f"{base_url}/v2/accounting/od/debt_to_penny"
-    # 2. Daily Treasury Statement (TGA Account Balance)
     dts_url = f"{base_url}/v1/accounting/dts/dts_table_1"
     
     try:
-        debt_res = requests.get(debt_url, params={"sort": "-record_date", "page[size]": "1"}, timeout=5).json()
-        dts_res = requests.get(dts_url, params={
-            "sort": "-record_date", 
-            "filter": "account_type:Status of Treasury General Account (TGA) Balance",
-            "page[size]": "1"
-        }, timeout=5).json()
+        # 1. Fetch Historical Debt Data (Uses native sorting limits)
+        debt_params = {
+            "sort": "-record_date",
+            "page[size]": "30"
+        }
+        debt_res = requests.get(debt_url, params=debt_params, timeout=10).json()["data"]
         
-        debt_record = debt_res["data"][0]
-        dts_record = dts_res["data"][0]
+        # 2. Fetch Historical TGA Cash Data 
+        dts_params = {
+            "filter": "account_type:eq:Status of Treasury General Account (TGA) Balance",
+            "sort": "-record_date",
+            "page[size]": "30"
+        }
+        dts_res = requests.get(dts_url, params=dts_params, timeout=10).json()["data"]
         
-        total_debt = float(debt_record["tot_pub_debt_out_amt"])
-        tga_balance = float(dts_record["close_today_amt"]) * 1_000_000  # Convert Millions to full value
+        # --- PARSE TIME-SERIES MATRICES ---
+        debt_history = [{"Date": rec["record_date"], "Total Debt ($ Trillions)": float(rec["tot_pub_debt_out_amt"]) / 1_000_000_000_000} for rec in reversed(debt_res)]
+        df_debt = pd.DataFrame(debt_history).set_index("Date")
         
-        # Calculate Milestone
-        current_trillion = int(total_debt // 1_000_000_000_000)
+        cash_history = [{"Date": rec["record_date"], "TGA Cash Balance ($ Billions)": (float(rec["close_today_amt"]) * 1_000_000) / 1_000_000_000} for rec in reversed(dts_res)]
+        df_cash = pd.DataFrame(cash_history).set_index("Date")
+        
+        # Extract the single most recent day from the top of the unreversed response arrays
+        latest_debt_amt = float(debt_res[0]["tot_pub_debt_out_amt"])
+        latest_tga_cash = float(dts_res[0]["close_today_amt"]) * 1_000_000
+        
+        current_trillion = int(latest_debt_amt // 1_000_000_000_000)
         next_milestone = (current_trillion + 1) * 1_000_000_000_000
-        distance_to_breach = next_milestone - total_debt
+        distance_to_breach = next_milestone - latest_debt_amt
         
         return {
             "success": True,
-            "debt_date": debt_record["record_date"],
-            "total_debt": total_debt,
+            "debt_date": debt_res[0]["record_date"],
+            "total_debt": latest_debt_amt,
             "current_trillion": current_trillion,
             "next_milestone": next_milestone,
             "distance_to_breach": distance_to_breach,
-            "cash_date": dts_record["record_date"],
-            "tga_balance": tga_balance
+            "cash_date": dts_res[0]["record_date"],
+            "tga_balance": latest_tga_cash,
+            "df_cash": df_cash,
+            "df_debt": df_debt
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
 
 # --- APPLICATION HEADER ---
 st.title("🏦 Institutional Macro Liquidity Monitor")
